@@ -1,0 +1,44 @@
+# Deno TypeScript Personal Data Backup Scripts
+
+Runtime: Deno 2
+
+## Project Overview
+Cross-platform TypeScript backup scripts for macOS, Linux, and Windows personal data management.
+
+## Backup Data Types
+- Home directories: App, DEV, Note, Course, Media, Work, etc.
+- System configurations:
+  - NixOS config files
+  - macOS Homebrew files
+  - Linux sysctl configurations (/etc/sysctl.d/99-sysctl.conf)
+  - ...
+- Application data:
+  - Unix: ~/.config/ (zed, fish, fontconfig, rustdesk, maa, ...)
+  - Windows: AppData/Roaming/
+  - Cross-platform: SSH keys (~/.ssh), etc.
+
+## Backup Task Types
+
+### 7z Type
+- Compresses directories/files into 7zip archives when dest ends with '.7z'
+- Platform commands:
+  - Linux/Windows: 7z
+  - macOS: 7zz
+- Example: { path: "~/DEV", dest: "DEV.7z" }
+
+### dir Type
+- Direct copy without compression
+- Example: { path: "~/Media", dest: "Media" }
+
+### task Type
+- Executes custom TypeScript functions
+- Structure: { type: "task", backup: Function, restore?: Function }
+
+## Key Features
+- OS filtering: Tasks filtered by os property (linux | darwin | windows | nixos | archlinux | any)
+- Before callbacks: Pre-processing functions
+  - Cleanup: Removes target/, node_modules/, .astro/, .react-router/, etc. before compression
+  - NixOS config backup
+  - .DS_Store removal
+  - ...
+- Platform-specific handling: Different logic for each OS type
