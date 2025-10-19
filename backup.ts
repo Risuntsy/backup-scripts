@@ -1,11 +1,11 @@
-import { ensureDir, copy, exists, emptyDir } from "@std/fs";
+import { copy, exists } from "@std/fs";
 import { join, basename } from "@std/path";
 
 import { BACKUP_DIR, COMMAND, CURRENT_OS, logger, textDecoder } from "./configs/configs.ts";
 import { BACKUP_CONFIG } from "./common/backup.ts";
 import { Callback, Optional } from "./types.ts";
 import { withLogging } from "./configs/log.ts";
-import { execRunnable } from "./utils/utils.ts";
+import { execRunnable, isEmpty } from "./utils/utils.ts";
 import { AsyncChain } from "./utils/async_utils.ts";
 
 async function backupCompressFolder(src: string[], dest: string, throwError: boolean = false) {
@@ -14,7 +14,7 @@ async function backupCompressFolder(src: string[], dest: string, throwError: boo
         .filter(async path => await exists(path))
         .toArray();
 
-    if (existingPaths.length === 0) {
+    if (isEmpty(existingPaths)) {
         logger.warn(`no valid directories found to compress for ${src.join(", ")}`);
         return;
     }
@@ -45,7 +45,7 @@ async function backupCopy(src: string[], dest: string) {
         .filter(async path => await exists(path))
         .toArray();
 
-    if (existingPaths.length === 0) {
+    if (isEmpty(existingPaths)) {
         logger.warn(`no valid directories found to copy for ${src.join(", ")}`);
         return;
     }
@@ -75,12 +75,6 @@ async function backupCopy(src: string[], dest: string) {
 
 async function doBackup() {
     const backupRunnable = async () => {
-        if (await exists(BACKUP_DIR)) {
-            logger.warn(`backup directory already exists, cleaning: ${BACKUP_DIR}`);
-            await emptyDir(BACKUP_DIR);
-        } else {
-            await ensureDir(BACKUP_DIR);
-        }
         const tasks: Promise<void>[] = [];
 
         const runBefore = async (before: Optional<Callback>[] | undefined, paths: string[]) => {

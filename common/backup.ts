@@ -1,14 +1,14 @@
 import { join } from "@std/path/join";
 
 import { BackupModel } from "~/types.ts";
-import { CURRENT_OS, HOME_DIR, XDG_CONFIG_HOME } from "../configs/configs.ts";
+import { CURRENT_OS, HOME_DIR, XDG_CONFIG_DIR } from "../configs/configs.ts";
 import { cleanBeforeCompress } from "./before.ts";
-import { backupNixosConfig } from "../linux/before.ts";
 import { cleanDsStore } from "../macos/before.ts";
 import { apps } from "./app.ts";
 import { LINUX_SPECIFIC_DIR } from "../linux/backup.ts";
 import { MACOS_SPECIFIC_DIR } from "../macos/backup.ts";
 import { UNIX_SPECIFIC_DIR } from "../unix/backup.ts";
+import { isCurrentOs } from "../os.ts";
 
 let BACKUP_CONFIG: BackupModel[] = [
     { paths: [join(HOME_DIR, "App")], dest: "App.7z" },
@@ -20,7 +20,6 @@ let BACKUP_CONFIG: BackupModel[] = [
     {
         paths: [join(HOME_DIR, "Note")],
         dest: "Note.7z",
-        before: CURRENT_OS === "nixos" ? [backupNixosConfig] : [],
     },
     {
         paths: [join(HOME_DIR, "Course")],
@@ -34,23 +33,17 @@ let BACKUP_CONFIG: BackupModel[] = [
         before: [cleanBeforeCompress],
     },
     {
-        paths: [join(XDG_CONFIG_HOME, ".gradle", "init.gradle")],
+        paths: [join(XDG_CONFIG_DIR, ".gradle", "init.gradle")],
         dest: "gradle.7z",
     },
     ...apps,
     ...LINUX_SPECIFIC_DIR,
     ...MACOS_SPECIFIC_DIR,
-    ...UNIX_SPECIFIC_DIR,
+    ...UNIX_SPECIFIC_DIR
 ];
 
 // Filter based on OS with proper Linux distribution handling
-BACKUP_CONFIG = BACKUP_CONFIG.filter(m => {
-    if (!m.os || m.os === "any") return true;
-    if (m.os === CURRENT_OS) return true;
-    // Handle Linux distributions - if config is for "linux" and current OS is a Linux variant
-    if (m.os === "linux" && (CURRENT_OS === "nixos" || CURRENT_OS === "archlinux")) return true;
-    return false;
-});
+BACKUP_CONFIG = BACKUP_CONFIG.filter(config => isCurrentOs(config.os));
 
 if (CURRENT_OS === "darwin") {
     BACKUP_CONFIG.filter(m => m.type !== "task").forEach(m =>

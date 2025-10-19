@@ -121,3 +121,47 @@ export async function isDirectory(path: string | URL): Promise<boolean> {
         throw err;
     }
 }
+
+export function isEmpty(value: unknown): boolean {
+    if (value === null || value === undefined) {
+        return true;
+    }
+
+    if (typeof value === 'string') {
+        return value.trim().length === 0;
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return false;
+    }
+
+    if (Array.isArray(value)) {
+        return value.length === 0 || value.every(item => isEmpty(item));
+    }
+
+    if (typeof value === 'object') {
+        const entries = Object.entries(value);
+        return entries.length === 0 || entries.every(([_, val]) => isEmpty(val));
+    }
+
+    return false;
+}
+
+export function isNotEmpty(value: unknown): boolean {
+    return !isEmpty(value);
+}
+
+export async function getBackupDir(): Promise<string> {
+    const CURRENT_DIR = Deno.cwd();
+    const baseBackupDir = path.join(path.dirname(CURRENT_DIR), new Date().toISOString().split("T")[0]);
+
+    let counter = 1;
+    let backupDir = baseBackupDir;
+
+    while (await exists(backupDir)) {
+        backupDir = `${baseBackupDir}_${counter}`;
+        counter++;
+    }
+
+    return backupDir;
+}

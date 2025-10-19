@@ -1,30 +1,19 @@
-
 import { BackupModel } from "~/types.ts";
 import { backupHomebrew } from "./before.ts";
-import { join } from "@std/path";
-import { HOME_DIR } from "../configs/configs.ts";
+import { CURRENT_OS } from "../configs/configs.ts";
 
-
-const launchAgents = [
-    "icu.risun.arknights.dailymaax5m2.plist"
-]
-
-const MACOS_SPECIFIC_DIR: BackupModel[] = [
+const MACOS_SPECIFIC_DIR: BackupModel[] = CURRENT_OS === "darwin"
+  ? [
     {
-        // Homebrew 备份
-        type: "task",
-        backup: backupHomebrew,
+      // Homebrew 备份
+      type: "task",
+      backup: backupHomebrew,
     },
-    {
-        paths :[],
-        dest:"fish.7z"
-    },
-    {
-        paths: launchAgents.map(agentFileName => join(HOME_DIR, "Library", "LaunchAgents", agentFileName)),
-        dest: "launchAgents.7z",
-    }
-];
+  ]
+  : [];
 
-MACOS_SPECIFIC_DIR.forEach(model => (model.os = "darwin"));
+MACOS_SPECIFIC_DIR.forEach((model) => {
+  model.os = "darwin";
+});
 
 export { MACOS_SPECIFIC_DIR };

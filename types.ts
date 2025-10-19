@@ -7,8 +7,9 @@ export type Runnable<T = void> = () => T | Promise<T>;
 
 export type Callback = (params: Partial<BeforeCallbackParams>) => void | Promise<void>;
 
-export type Os = typeof Deno.build.os | "any" | "nixos" | "archlinux";
+export type Os = typeof Deno.build.os | "any" | "nixos" | "archlinux" | "unix";
 export type Linux = Extract<Os, "nixos" | "archlinux">;
+export type UnixLike = Exclude<Os, "windows">;
 
 export const LINUX_OS: Set<Os> = new Set(["nixos", "archlinux"]);
 

@@ -1,18 +1,12 @@
 import { join } from "@std/path/join";
 
-import { HOME_DIR } from "../configs/configs.ts";
 import { BackupModel } from "../types.ts";
+import { XDG_CONFIG_DIR } from "../configs/configs.ts";
 
-const CONFIG_DIR = join(HOME_DIR, ".config");
-
-const APPS = ["zed", "fontconfig", "rustdesk"];
 
 const LINUX_SPECIFIC_DIR: BackupModel[] = [
     { paths: [join("/etc/sysctl.d/99-sysctl.conf")], dest: "sysctl.7z" },
-    ...APPS.map(app => ({
-        paths: [join(CONFIG_DIR, app)],
-        dest: `${app}.7z`,
-    })),
+    { paths: [join(XDG_CONFIG_DIR, "chrome-flags.conf")], dest: "chrome-flags.7z" },
 ];
 
 LINUX_SPECIFIC_DIR.forEach(model => {
