@@ -101,10 +101,12 @@ async function getLinuxDistribution(): Promise<Os> {
         return "nixos";
     }
 
+        if (osRelease.includes("NAME=\"Arch Linux\"")) {
+        return "archlinux";
+    }
+
     return "linux";
-    // if (osRelease.includes("NAME=\"Arch Linux\"")) {
-    //     return "archlinux";
-    // }
+
 
     // throw new Error("unknown distribution");
 }
@@ -164,4 +166,18 @@ export async function getBackupDir(): Promise<string> {
     }
 
     return backupDir;
+}
+
+export async function command(...commands: string[]): Promise<string> {
+    const {stdout, stderr, success, code: _code} = await (new Deno.Command(commands[0], {
+        args: commands.slice(1),
+        stdout: "piped",
+        stderr: "piped",
+    }).output());
+
+    if(!success) {
+        return Promise.reject(new Error(`Command failed: ${textDecoder.decode(stderr)}`));
+    }
+
+    return textDecoder.decode(stdout);
 }
