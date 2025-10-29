@@ -36,6 +36,10 @@ let BACKUP_CONFIG: BackupModel[] = [
         paths: [join(XDG_CONFIG_DIR, ".gradle", "init.gradle")],
         dest: "gradle.7z",
     },
+    {
+        paths: [join(HOME_DIR, ".cargo", "config.toml")],
+        dest: "cargo.7z",
+    },
     ...apps,
     ...LINUX_SPECIFIC_DIR,
     ...MACOS_SPECIFIC_DIR,
