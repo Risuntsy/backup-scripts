@@ -42,3 +42,12 @@ before-command = [
     "find ~/DEV/my-project -name node_modules -type d -exec rm -rf {} +",
     "find ~/DEV/my-project -name .git -type d -exec rm -rf {} +"
 ]
+
+[[tasks]]
+src = ["/tmp/archlinux_packages.txt"]
+dest = "archlinux_packages.txt"
+before-command = [
+    "pacman -Qenq > /tmp/archlinux_packages.txt && pacman -Qemq >> /tmp/archlinux_packages.txt",
+]
+os = ["archlinux"]
+restore = false

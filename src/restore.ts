@@ -1,5 +1,5 @@
 import { copy, ensureDir, exists } from "@std/fs";
-import { dirname, join } from "@std/path";
+import { basename, dirname, join } from "@std/path";
 import { parse } from "@std/toml";
 import type { BackupConfig, Os, ResolvedTask } from "./types.ts";
 import { getCurrentOs, isRestoreCompatible } from "./utils/os.ts";
@@ -7,9 +7,6 @@ import { expandPath } from "./utils/path.ts";
 import { extract } from "./utils/compress.ts";
 import { getLogger, initLogger } from "./utils/logger.ts";
 
-/**
- * Load config from backup directory
- */
 async function loadBackupConfig(backupDir: string): Promise<BackupConfig> {
     const configPath = join(backupDir, "backup.toml");
 
@@ -23,74 +20,101 @@ async function loadBackupConfig(backupDir: string): Promise<BackupConfig> {
     return parse(content) as unknown as BackupConfig;
 }
 
-/**
- * Restore by copying from backup to original location
- */
-async function restoreCopy(src: string, dest: string): Promise<void> {
+async function restoreCopy(
+    backupSrc: string,
+    originalSrc: string[],
+    originalDest: string,
+): Promise<void> {
     const logger = getLogger();
 
-    if (!(await exists(src))) {
-        logger.warn(`Source not found, skipping: ${src}`);
+    if (!(await exists(backupSrc))) {
+        logger.warn(`Source not found, skipping: ${backupSrc}`);
         return;
     }
 
-    const destDir = dirname(dest);
-    await ensureDir(destDir);
-
-    if (await exists(dest)) {
-        throw new Error(`Destination already exists: ${dest}`);
+    const destIsFile = originalDest.includes(".") && !originalDest.endsWith("/") && originalSrc.length === 1;
+    
+    if (destIsFile) {
+        const restoreDest = originalSrc[0];
+        const destDir = dirname(restoreDest);
+        await ensureDir(destDir);
+        
+        if (await exists(restoreDest)) {
+            throw new Error(`Destination already exists: ${restoreDest}`);
+        }
+        
+        await copy(backupSrc, restoreDest, { overwrite: false });
+        logger.info(`Restored ${backupSrc} -> ${restoreDest}`);
+    } else if (originalSrc.length === 1) {
+        const restoreDest = originalSrc[0];
+        const destDir = dirname(restoreDest);
+        await ensureDir(destDir);
+        
+        if (await exists(restoreDest)) {
+            throw new Error(`Destination already exists: ${restoreDest}`);
+        }
+        
+        await copy(backupSrc, restoreDest, { overwrite: false });
+        logger.info(`Restored ${backupSrc} -> ${restoreDest}`);
+    } else {
+        for (const originalPath of originalSrc) {
+            const srcName = basename(originalPath);
+            const backupPath = join(backupSrc, srcName);
+            
+            if (!(await exists(backupPath))) {
+                logger.warn(`Source not found, skipping: ${backupPath}`);
+                continue;
+            }
+            
+            const destDir = dirname(originalPath);
+            await ensureDir(destDir);
+            
+            if (await exists(originalPath)) {
+                throw new Error(`Destination already exists: ${originalPath}`);
+            }
+            
+            await copy(backupPath, originalPath, { overwrite: false });
+            logger.info(`Restored ${backupPath} -> ${originalPath}`);
+        }
     }
-
-    await copy(src, dest, { overwrite: false });
-    logger.info(`Restored ${src} -> ${dest}`);
 }
 
-/**
- * Restore by extracting 7z archive
- */
-async function restoreExtract(src: string, dest: string): Promise<void> {
+async function restoreExtract(
+    archivePath: string,
+    originalSrc: string[],
+): Promise<void> {
     const logger = getLogger();
 
-    if (!(await exists(src))) {
-        logger.warn(`Archive not found, skipping: ${src}`);
+    if (!(await exists(archivePath))) {
+        logger.warn(`Archive not found, skipping: ${archivePath}`);
         return;
     }
 
-    const destDir = dirname(dest);
+    const restoreDest = originalSrc[0];
+    const destDir = dirname(restoreDest);
     await ensureDir(destDir);
 
-    await extract(src, destDir);
-    logger.info(`Extracted ${src} -> ${destDir}`);
+    await extract(archivePath, destDir);
+    logger.info(`Extracted ${archivePath} -> ${destDir}`);
 }
 
-/**
- * Process a single restore task
- */
 async function processRestoreTask(
     task: ResolvedTask,
     backupDir: string,
 ): Promise<void> {
     try {
-        // Source is in backup directory
-        const srcPath = join(backupDir, task.dest);
+        const backupPath = join(backupDir, task.dest);
 
-        // Destination is the first item in task.src (original location)
-        const destPath = task.src[0];
-
-        // Execute restore
         if (task.isCompress) {
-            await restoreExtract(srcPath, destPath);
+            await restoreExtract(backupPath, task.src);
         } else {
-            await restoreCopy(srcPath, destPath);
+            await restoreCopy(backupPath, task.src, task.dest);
         }
     } catch (error) {
         throw new Error(`Task failed [src: ${task.dest}]: ${error}`);
     }
 }
 
-/**
- * Resolve tasks for restore (similar to backup but checks compatibility)
- */
 function resolveRestoreTasks(
     config: BackupConfig,
     backupOs: Os,
@@ -100,15 +124,17 @@ function resolveRestoreTasks(
     const resolved: ResolvedTask[] = [];
 
     for (const task of config.tasks) {
-        // Check if task is compatible with both backup OS and current OS
+        if (task.restore === false) {
+            logger.info(`Skipping non-restorable task: ${task.dest}`);
+            continue;
+        }
+        
         const taskOs = task.os || [];
 
-        // Skip if task doesn't match backup OS (shouldn't happen, but safety check)
         if (taskOs.length > 0 && !taskOs.includes(backupOs)) {
             continue;
         }
 
-        // Check restore compatibility
         if (!isRestoreCompatible(backupOs, currentOs)) {
             logger.warn(
                 `Skipping incompatible task: backup OS=${backupOs}, current OS=${currentOs}, dest=${task.dest}`,
@@ -116,7 +142,6 @@ function resolveRestoreTasks(
             continue;
         }
 
-        // Expand paths
         const expandedSources = task.src.map(expandPath);
         const expandedDest = expandPath(task.dest);
 
@@ -126,15 +151,13 @@ function resolveRestoreTasks(
             beforeCommand: [],
             os: taskOs,
             isCompress: expandedDest.endsWith(".7z"),
+            restore: !!task.restore,
         });
     }
 
     return resolved;
 }
 
-/**
- * Detect backup OS from backup directory name or config
- */
 function detectBackupOs(backupDirName: string): Os {
     const lowerName = backupDirName.toLowerCase();
 
@@ -154,41 +177,31 @@ function detectBackupOs(backupDirName: string): Os {
         return "linux";
     }
 
-    // Default to current OS if cannot detect
     throw new Error(
         `Cannot detect backup OS from directory name: ${backupDirName}`,
     );
 }
 
-/**
- * Main restore function
- */
 async function restore(backupDir: string) {
     try {
-        // Resolve backup directory path
         const resolvedBackupDir = expandPath(backupDir);
 
         if (!(await exists(resolvedBackupDir))) {
             throw new Error(`Backup directory not found: ${resolvedBackupDir}`);
         }
 
-        // Initialize logger in backup directory
         await initLogger(resolvedBackupDir);
         const logger = getLogger();
 
         logger.info(`Starting restore from: ${resolvedBackupDir}`);
 
-        // Load config from backup
         const config = await loadBackupConfig(resolvedBackupDir);
-
-        // Detect backup OS and get current OS
         const backupDirName = dirname(resolvedBackupDir);
         const backupOs = detectBackupOs(backupDirName);
         const currentOs = await getCurrentOs();
 
         logger.info(`OS: ${backupOs} -> ${currentOs}`);
 
-        // Resolve tasks
         const tasks = await resolveRestoreTasks(config, backupOs, currentOs);
         logger.info(`Tasks: ${tasks.length} for restore`);
 
@@ -197,14 +210,12 @@ async function restore(backupDir: string) {
             return;
         }
 
-        // Execute tasks in parallel
         const results = await Promise.allSettled(
             tasks.map((task) =>
                 processRestoreTask(task, resolvedBackupDir)
             ),
         );
 
-        // Check results
         const failures = results.filter((r) => r.status === "rejected");
         const successes = results.filter((r) => r.status === "fulfilled");
 
@@ -226,7 +237,6 @@ async function restore(backupDir: string) {
     }
 }
 
-// Entry point
 if (Deno.args.length === 0) {
     console.error("Usage: deno task restore <backup-directory>");
     Deno.exit(1);

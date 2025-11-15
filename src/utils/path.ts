@@ -1,23 +1,19 @@
 import { dir } from "@cross/dir";
 import { join, resolve } from "@std/path";
 import { exists } from "@std/fs";
+import { getLogger } from "./logger.ts";
 
 const HOME_DIR = await dir("home");
 const CONFIG_DIR = await dir("config");
 
-/**
- * Expand variables in path strings
- * Supports: ${HOME}, ${XDG_CONFIG_HOME}, ${CONFIG_HOME}
- */
+
 export function expandPath(path: string): string {
     let expanded = path;
 
-    // Replace ~ with HOME at the start
     if (expanded.startsWith("~/")) {
         expanded = join(HOME_DIR, expanded.slice(2));
     }
 
-    // Replace variables
     expanded = expanded.replace(/\$\{HOME\}/g, HOME_DIR);
     expanded = expanded.replace(
         /\$\{XDG_CONFIG_HOME\}/g,
@@ -28,15 +24,12 @@ export function expandPath(path: string): string {
     return resolve(expanded);
 }
 
-/**
- * Check if path exists and get its size
- * Returns 0 if file doesn't exist or is empty
- */
+
 export async function getFileSize(path: string): Promise<number> {
     try {
         const stat = await Deno.stat(path);
         if (stat.isDirectory) {
-            return 1; // Directories are considered non-empty
+            return 1;
         }
         return stat.size;
     } catch {
@@ -44,24 +37,23 @@ export async function getFileSize(path: string): Promise<number> {
     }
 }
 
-/**
- * Filter and validate source paths
- * - Skips non-existent paths
- * - Skips empty files (0 bytes)
- */
+
 export async function filterValidSources(sources: string[]): Promise<string[]> {
+    const logger = getLogger();
     const validSources: string[] = [];
 
     for (const src of sources) {
         const expanded = expandPath(src);
 
         if (!(await exists(expanded))) {
-            continue; // Skip non-existent files silently
+            logger.warn(`Source not found, skipping: ${expanded}`);
+            continue;
         }
 
         const size = await getFileSize(expanded);
         if (size === 0) {
-            continue; // Skip empty files
+            logger.warn(`Source is empty, skipping: ${expanded}`);
+            continue;
         }
 
         validSources.push(expanded);
@@ -70,10 +62,7 @@ export async function filterValidSources(sources: string[]): Promise<string[]> {
     return validSources;
 }
 
-/**
- * Expand backup directory path with variables
- * Supports: ${os}, ${date}, ${count}
- */
+
 export async function expandBackupDir(
     pattern: string,
     os: string,
@@ -84,7 +73,6 @@ export async function expandBackupDir(
         date,
     );
 
-    // Handle count - find the next available number
     if (expanded.includes("${count}")) {
         const baseExpanded = expandPath(expanded);
         let count = 1;

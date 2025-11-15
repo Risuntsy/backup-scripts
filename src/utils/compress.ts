@@ -1,11 +1,9 @@
 import { getCurrentOs } from "./os.ts";
 import { textDecoder } from "./constants.ts";
+import { getLogger } from "./logger.ts";
 
 let sevenZipCommand: string | null = null;
 
-/**
- * Get the 7zip command for the current OS
- */
 export async function get7zipCommand(): Promise<string> {
     if (sevenZipCommand) {
         return sevenZipCommand;
@@ -16,17 +14,12 @@ export async function get7zipCommand(): Promise<string> {
     return sevenZipCommand;
 }
 
-/**
- * Set custom 7zip command (for configuration override)
- */
+
 export function set7zipCommand(command: string) {
     sevenZipCommand = command;
 }
 
-/**
- * Compress files/folders to a 7z archive
- * Ignores warnings from 7z but throws on actual errors
- */
+
 export async function compress(sources: string[], dest: string): Promise<void> {
     const cmd = await get7zipCommand();
 
@@ -38,20 +31,15 @@ export async function compress(sources: string[], dest: string): Promise<void> {
 
     const { code, stderr } = await command.output();
 
-    // 7z exit codes:
-    // 0 = success
-    // 1 = warning (non-critical, e.g., file in use)
-    // 2+ = error
-    if (code >= 2) {
+    if (code === 1) {
+        const logger = getLogger();
+        logger.warn(`7z compression warning: ${textDecoder.decode(stderr)}`);
+    } else if (code >= 2) {
         throw new Error(`7z compression failed: ${textDecoder.decode(stderr)}`);
     }
-    // Exit code 1 (warnings) are ignored
 }
 
-/**
- * Extract a 7z archive to a destination folder
- * Ignores warnings from 7z but throws on actual errors
- */
+
 export async function extract(src: string, dest: string): Promise<void> {
     const cmd = await get7zipCommand();
 
@@ -63,9 +51,10 @@ export async function extract(src: string, dest: string): Promise<void> {
 
     const { code, stderr } = await command.output();
 
-    // 7z exit codes: 0 = success, 1 = warning, 2+ = error
-    if (code >= 2) {
+    if (code === 1) {
+        const logger = getLogger();
+        logger.warn(`7z extraction warning: ${textDecoder.decode(stderr)}`);
+    } else if (code >= 2) {
         throw new Error(`7z extraction failed: ${textDecoder.decode(stderr)}`);
     }
-    // Exit code 1 (warnings) are ignored
 }

@@ -5,10 +5,10 @@
     },
     "imports": {
         "@cross/dir": "jsr:@cross/dir@^1.1",
-        "@deno-library/logger": "jsr:@deno-library/logger@^1.1",
-        "@std/fs": "jsr:@std/fs@^1.0",
-        "@std/path": "jsr:@std/path@^1.1",
-        "@std/toml": "jsr:@std/toml@^1.0"
+        "@deno-library/logger": "jsr:@deno-library/logger@^1.2",
+        "@std/fs": "jsr:@std/fs@^1.0.19",
+        "@std/path": "jsr:@std/path@^1.1.2",
+        "@std/toml": "jsr:@std/toml@^1.0.11"
     },
     "fmt": {
         "indentWidth": 4

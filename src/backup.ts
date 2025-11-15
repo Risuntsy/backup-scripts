@@ -7,22 +7,42 @@ import { compress } from "./utils/compress.ts";
 import { getLogger, initLogger } from "./utils/logger.ts";
 import { textDecoder } from "./utils/constants.ts";
 
-/**
- * Execute before-commands for a task
- */
 async function runBeforeCommands(commands: string[]): Promise<void> {
     const logger = getLogger();
+
+    logger.debug(`Running before-commands: ${commands}`);
 
     for (const command of commands) {
         try {
             logger.info(`Executing before-command: ${command}`);
 
-            const parts = command.split(/\s+/);
-            const cmd = new Deno.Command(parts[0], {
-                args: parts.slice(1),
-                stdout: "piped",
-                stderr: "piped",
-            });
+            const needsShell = command.includes("|") || 
+                               command.includes(">") || 
+                               command.includes("<") ||
+                               command.includes("&&") ||
+                               command.includes("||") ||
+                               command.includes("'") ||
+                               command.includes('"');
+
+            let cmd;
+            if (needsShell) {
+                const currentOs = await getCurrentOs();
+                const shell = currentOs === "windows" ? "cmd" : "sh";
+                const shellArg = currentOs === "windows" ? "/c" : "-c";
+                
+                cmd = new Deno.Command(shell, {
+                    args: [shellArg, command],
+                    stdout: "piped",
+                    stderr: "piped",
+                });
+            } else {
+                const parts = command.split(/\s+/);
+                cmd = new Deno.Command(parts[0], {
+                    args: parts.slice(1),
+                    stdout: "piped",
+                    stderr: "piped",
+                });
+            }
 
             const { code, stderr } = await cmd.output();
 
@@ -39,21 +59,29 @@ async function runBeforeCommands(commands: string[]): Promise<void> {
     }
 }
 
-/**
- * Backup files by copying to destination
- */
 async function backupCopy(sources: string[], dest: string): Promise<void> {
     const logger = getLogger();
-    await ensureDir(dest);
-
-    if (sources.length === 1) {
-        // Single source - copy directly to dest
-        const srcName = basename(sources[0]);
-        const targetPath = join(dest, srcName);
-        await copy(sources[0], targetPath, { overwrite: false });
-        logger.info(`Copied ${sources[0]} -> ${targetPath}`);
+    
+    const destIsFile = dest.includes(".") && !dest.endsWith("/") && sources.length === 1;
+    
+    if (destIsFile) {
+        const destDir = dirname(dest);
+        await ensureDir(destDir);
+        await copy(sources[0], dest, { overwrite: false });
+        logger.info(`Copied ${sources[0]} -> ${dest}`);
+    } else if (sources.length === 1) {
+        await ensureDir(dest);
+        const srcStat = await Deno.stat(sources[0]);
+        if (srcStat.isFile) {
+            const targetPath = join(dest, basename(sources[0]));
+            await copy(sources[0], targetPath, { overwrite: false });
+            logger.info(`Copied ${sources[0]} -> ${targetPath}`);
+        } else {
+            await copy(sources[0], dest, { overwrite: false });
+            logger.info(`Copied ${sources[0]} -> ${dest}`);
+        }
     } else {
-        // Multiple sources - copy each to dest
+        await ensureDir(dest);
         for (const src of sources) {
             const srcName = basename(src);
             const targetPath = join(dest, srcName);
@@ -63,9 +91,6 @@ async function backupCopy(sources: string[], dest: string): Promise<void> {
     }
 }
 
-/**
- * Backup files by compressing to 7z archive
- */
 async function backupCompress(sources: string[], dest: string): Promise<void> {
     const logger = getLogger();
     const destDir = dirname(dest);
@@ -75,23 +100,17 @@ async function backupCompress(sources: string[], dest: string): Promise<void> {
     logger.info(`Compressed ${sources.length} item(s) -> ${dest}`);
 }
 
-/**
- * Process a single backup task
- */
 async function processBackupTask(
     task: Awaited<ReturnType<typeof resolveTasks>>[number],
     backupDir: string,
 ): Promise<void> {
     try {
-        // Run before commands
         if (task.beforeCommand.length > 0) {
             await runBeforeCommands(task.beforeCommand);
         }
 
-        // Calculate destination path
         const destPath = join(backupDir, task.dest);
 
-        // Execute backup
         if (task.isCompress) {
             await backupCompress(task.src, destPath);
         } else {
@@ -102,39 +121,27 @@ async function processBackupTask(
     }
 }
 
-/**
- * Main backup function
- */
 async function backup(configPath: string) {
     try {
-        // Load configuration
         const config = await loadConfig(configPath);
-
-        // Get current OS and date
         const currentOs = await getCurrentOs();
         const date = new Date().toISOString().split("T")[0];
-
-        // Resolve backup directory
         const backupDir = await expandBackupDir(
             config["backup-dir"],
             currentOs,
             date,
         );
 
-        // Create backup directory
-        await ensureDir(backupDir);
 
-        // Initialize logger in backup directory
+        await ensureDir(backupDir);
         await initLogger(backupDir);
         const logger = getLogger();
 
         logger.info(`Starting backup: ${backupDir}`);
 
-        // Copy config file to backup directory
         const configDestPath = join(backupDir, basename(configPath));
         await copy(configPath, configDestPath);
 
-        // Resolve tasks
         const tasks = await resolveTasks(config);
         logger.info(`Tasks: ${tasks.length} for OS: ${currentOs}`);
 
@@ -143,12 +150,10 @@ async function backup(configPath: string) {
             return;
         }
 
-        // Execute tasks in parallel
         const results = await Promise.allSettled(
             tasks.map((task) => processBackupTask(task, backupDir)),
         );
 
-        // Check results
         const failures = results.filter((r) => r.status === "rejected");
         const successes = results.filter((r) => r.status === "fulfilled");
 
@@ -170,6 +175,5 @@ async function backup(configPath: string) {
     }
 }
 
-// Entry point
 const configPath = Deno.args[0] || "backup.toml";
 await backup(configPath);
