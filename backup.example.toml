@@ -1,0 +1,44 @@
+# Simple Example Configuration for Testing
+# Copy this to backup.toml and customize for your needs
+
+backup-dir = "./backup_${os}_${date}_${count}"
+
+# Example 1: Simple file backup
+[[tasks]]
+src = ["~/.bashrc", "~/.zshrc"]
+dest = "shell-config.7z"
+
+# Example 2: Backup a directory without compression
+[[tasks]]
+src = ["~/Pictures/Wallpapers"]
+dest = "wallpapers"
+
+# Example 3: Linux-only backup
+[[tasks]]
+src = ["~/.config/i3"]
+dest = "i3-config.7z"
+os = ["linux", "archlinux"]
+
+# Example 4: macOS-only backup
+[[tasks]]
+src = ["~/.config/aerospace"]
+dest = "aerospace-config.7z"
+os = ["darwin"]
+
+# Example 5: Multiple sources to one archive
+[[tasks]]
+src = [
+    "~/.config/nvim",
+    "~/.config/alacritty",
+    "~/.tmux.conf"
+]
+dest = "dev-tools.7z"
+
+# Example 6: With cleanup before backup
+[[tasks]]
+src = ["~/DEV/my-project"]
+dest = "my-project.7z"
+before-command = [
+    "find ~/DEV/my-project -name node_modules -type d -exec rm -rf {} +",
+    "find ~/DEV/my-project -name .git -type d -exec rm -rf {} +"
+]

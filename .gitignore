@@ -1,0 +1,17 @@
+# Backup directories
+backup_*/
+logs/
+
+# Deno
+.deno/
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.log
+backup.toml
+

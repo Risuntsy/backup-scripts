@@ -1,14 +1,16 @@
 {
     "tasks": {
-        "backup": "deno run --allow-read --allow-write --allow-run --allow-env backup.ts",
-        "restore": "deno run --allow-read --allow-write --allow-run --allow-env restore.ts",
-        "clean": "deno run --allow-read --allow-write --allow-run --allow-env clean.ts"
+        "backup": "deno run --allow-read --allow-write --allow-run --allow-env src/backup.ts",
+        "restore": "deno run --allow-read --allow-write --allow-run --allow-env src/restore.ts"
     },
     "imports": {
         "@cross/dir": "jsr:@cross/dir@^1.1",
         "@deno-library/logger": "jsr:@deno-library/logger@^1.1",
         "@std/fs": "jsr:@std/fs@^1.0",
         "@std/path": "jsr:@std/path@^1.1",
-        "~/": "./"
+        "@std/toml": "jsr:@std/toml@^1.0"
+    },
+    "fmt": {
+        "indentWidth": 4
     }
 }
