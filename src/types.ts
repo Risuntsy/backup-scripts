@@ -6,6 +6,7 @@ export interface BackupTask {
     "before-command"?: string[];
     os?: Os[];
     restore?: boolean;
+    "filter-source"?: boolean;
 }
 
 export interface BackupConfig {

@@ -50,7 +50,9 @@ export async function resolveTask(
     }
 
     const expandedSources = task.src.map(expandPath);
-    const validSources = await filterValidSources(expandedSources);
+    const validSources = task["filter-source"]
+        ? await filterValidSources(expandedSources)
+        : expandedSources;
 
     if (validSources.length === 0) {
         return null;

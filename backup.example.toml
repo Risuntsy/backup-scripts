@@ -51,3 +51,4 @@ before-command = [
 ]
 os = ["archlinux"]
 restore = false
+filter-source = false

@@ -1,4 +1,6 @@
 {
     "deno.enable": true,
-    "prettier.configPath": ".prettierrc"
+    "[typescript]": {
+        "editor.defaultFormatter": "denoland.vscode-deno"
+    }
 }
