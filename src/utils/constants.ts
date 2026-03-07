@@ -2,4 +2,8 @@
  * Global constants
  */
 
-export const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder();
+
+const getTextDecoder = () => textDecoder;
+
+export { getTextDecoder };

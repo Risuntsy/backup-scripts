@@ -1,5 +1,6 @@
 import Logger from "@deno-library/logger";
 import { join } from "@std/path";
+import { ensureDir } from "@std/fs";
 
 const logger = new Logger();
 
@@ -9,7 +10,7 @@ const logger = new Logger();
 export async function initLogger(backupDir: string) {
     const logDir = join(backupDir, "logs");
 
-    await Deno.mkdir(logDir, { recursive: true });
+    await ensureDir(logDir);
 
     logger.initFileLogger(logDir);
     logger.enableFile();

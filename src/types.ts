@@ -1,12 +1,16 @@
 export type Os = "linux" | "nixos" | "archlinux" | "darwin" | "windows";
 
+export type TaskType = "backup" | "command";
+
 export interface BackupTask {
-    src: string[];
-    dest: string;
+    type?: TaskType;
+    src?: string[];
+    dest?: string;
     "before-command"?: string[];
     os?: Os[];
     restore?: boolean;
     "filter-source"?: boolean;
+    commands?: string[];
 }
 
 export interface BackupConfig {
@@ -14,11 +18,22 @@ export interface BackupConfig {
     tasks: BackupTask[];
 }
 
-export interface ResolvedTask {
+interface ResolvedTaskBase {
+    os: Os[];
+}
+
+export interface ResolvedBackupTask extends ResolvedTaskBase {
+    type: "backup";
     src: string[];
     dest: string;
-    beforeCommand: string[];
-    os: Os[];
     isCompress: boolean;
     restore: boolean;
+    beforeCommands?: string[];
 }
+
+export interface ResolvedCommandTask extends ResolvedTaskBase {
+    type: "command";
+    commands: string[];
+}
+
+export type ResolvedTask = ResolvedBackupTask | ResolvedCommandTask;

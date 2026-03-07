@@ -7,6 +7,10 @@ import { expandPath } from "./utils/path.ts";
 import { extract } from "./utils/compress.ts";
 import { getLogger, initLogger } from "./utils/logger.ts";
 
+const logger = getLogger();
+const backupDir = Deno.args[0];
+await restore(backupDir);
+
 async function loadBackupConfig(backupDir: string): Promise<BackupConfig> {
     const configPath = join(backupDir, "backup.toml");
 
@@ -23,56 +27,40 @@ async function loadBackupConfig(backupDir: string): Promise<BackupConfig> {
 async function restoreCopy(
     backupSrc: string,
     originalSrc: string[],
-    originalDest: string,
 ): Promise<void> {
-    const logger = getLogger();
-
     if (!(await exists(backupSrc))) {
         logger.warn(`Source not found, skipping: ${backupSrc}`);
         return;
     }
 
-    const destIsFile = originalDest.includes(".") && !originalDest.endsWith("/") && originalSrc.length === 1;
-    
-    if (destIsFile) {
+    if (originalSrc.length === 1) {
         const restoreDest = originalSrc[0];
         const destDir = dirname(restoreDest);
         await ensureDir(destDir);
-        
+
         if (await exists(restoreDest)) {
             throw new Error(`Destination already exists: ${restoreDest}`);
         }
-        
-        await copy(backupSrc, restoreDest, { overwrite: false });
-        logger.info(`Restored ${backupSrc} -> ${restoreDest}`);
-    } else if (originalSrc.length === 1) {
-        const restoreDest = originalSrc[0];
-        const destDir = dirname(restoreDest);
-        await ensureDir(destDir);
-        
-        if (await exists(restoreDest)) {
-            throw new Error(`Destination already exists: ${restoreDest}`);
-        }
-        
+
         await copy(backupSrc, restoreDest, { overwrite: false });
         logger.info(`Restored ${backupSrc} -> ${restoreDest}`);
     } else {
         for (const originalPath of originalSrc) {
             const srcName = basename(originalPath);
             const backupPath = join(backupSrc, srcName);
-            
+
             if (!(await exists(backupPath))) {
                 logger.warn(`Source not found, skipping: ${backupPath}`);
                 continue;
             }
-            
+
             const destDir = dirname(originalPath);
             await ensureDir(destDir);
-            
+
             if (await exists(originalPath)) {
                 throw new Error(`Destination already exists: ${originalPath}`);
             }
-            
+
             await copy(backupPath, originalPath, { overwrite: false });
             logger.info(`Restored ${backupPath} -> ${originalPath}`);
         }
@@ -83,7 +71,6 @@ async function restoreExtract(
     archivePath: string,
     originalSrc: string[],
 ): Promise<void> {
-    const logger = getLogger();
 
     if (!(await exists(archivePath))) {
         logger.warn(`Archive not found, skipping: ${archivePath}`);
@@ -102,16 +89,19 @@ async function processRestoreTask(
     task: ResolvedTask,
     backupDir: string,
 ): Promise<void> {
+    if (task.type !== "backup") {
+        return;
+    }
     try {
         const backupPath = join(backupDir, task.dest);
 
         if (task.isCompress) {
             await restoreExtract(backupPath, task.src);
         } else {
-            await restoreCopy(backupPath, task.src, task.dest);
+            await restoreCopy(backupPath, task.src);
         }
     } catch (error) {
-        throw new Error(`Task failed [src: ${task.dest}]: ${error}`);
+        throw new Error(`Task failed [dest: ${task.dest}]: ${error}`);
     }
 }
 
@@ -120,15 +110,17 @@ function resolveRestoreTasks(
     backupOs: Os,
     currentOs: Os,
 ): ResolvedTask[] {
-    const logger = getLogger();
     const resolved: ResolvedTask[] = [];
 
     for (const task of config.tasks) {
+        if ((task.type ?? "backup") === "command") {
+            continue;
+        }
         if (task.restore === false) {
             logger.info(`Skipping non-restorable task: ${task.dest}`);
             continue;
         }
-        
+
         const taskOs = task.os || [];
 
         if (taskOs.length > 0 && !taskOs.includes(backupOs)) {
@@ -142,15 +134,23 @@ function resolveRestoreTasks(
             continue;
         }
 
-        const expandedSources = task.src.map(expandPath);
-        const expandedDest = expandPath(task.dest);
+        const originalDest = task.dest ?? "";
+        if (!originalDest) {
+            logger.warn("Skipping task with empty destination");
+            continue;
+        }
+
+        const expandedSources = (task.src ?? []).map(expandPath);
 
         resolved.push({
+            type: "backup",
             src: expandedSources,
-            dest: expandedDest,
-            beforeCommand: [],
+            // Keep backup destination path relative to backup directory.
+            // Expanding it here breaks restore source path resolution.
+            dest: originalDest,
+            beforeCommands: [],
             os: taskOs,
-            isCompress: expandedDest.endsWith(".7z"),
+            isCompress: originalDest.endsWith(".7z"),
             restore: !!task.restore,
         });
     }
@@ -191,18 +191,17 @@ async function restore(backupDir: string) {
         }
 
         await initLogger(resolvedBackupDir);
-        const logger = getLogger();
 
         logger.info(`Starting restore from: ${resolvedBackupDir}`);
 
         const config = await loadBackupConfig(resolvedBackupDir);
-        const backupDirName = dirname(resolvedBackupDir);
+        const backupDirName = basename(resolvedBackupDir);
         const backupOs = detectBackupOs(backupDirName);
         const currentOs = await getCurrentOs();
 
         logger.info(`OS: ${backupOs} -> ${currentOs}`);
 
-        const tasks = await resolveRestoreTasks(config, backupOs, currentOs);
+        const tasks = resolveRestoreTasks(config, backupOs, currentOs);
         logger.info(`Tasks: ${tasks.length} for restore`);
 
         if (tasks.length === 0) {
@@ -211,9 +210,7 @@ async function restore(backupDir: string) {
         }
 
         const results = await Promise.allSettled(
-            tasks.map((task) =>
-                processRestoreTask(task, resolvedBackupDir)
-            ),
+            tasks.map((task) => processRestoreTask(task, resolvedBackupDir)),
         );
 
         const failures = results.filter((r) => r.status === "rejected");
@@ -231,7 +228,6 @@ async function restore(backupDir: string) {
 
         logger.info(`Restore completed: ${successes.length} tasks`);
     } catch (error) {
-        const logger = getLogger();
         logger.error(`Restore failed: ${error}`);
         Deno.exit(1);
     }
@@ -241,6 +237,3 @@ if (Deno.args.length === 0) {
     console.error("Usage: deno task restore <backup-directory>");
     Deno.exit(1);
 }
-
-const backupDir = Deno.args[0];
-await restore(backupDir);

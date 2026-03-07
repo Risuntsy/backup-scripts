@@ -6,6 +6,7 @@ import { getLogger } from "./logger.ts";
 const HOME_DIR = await dir("home");
 const CONFIG_DIR = await dir("config");
 
+const logger = getLogger();
 
 export function expandPath(path: string): string {
     let expanded = path;
@@ -39,7 +40,6 @@ export async function getFileSize(path: string): Promise<number> {
 
 
 export async function filterValidSources(sources: string[]): Promise<string[]> {
-    const logger = getLogger();
     const validSources: string[] = [];
 
     for (const src of sources) {

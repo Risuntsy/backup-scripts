@@ -52,3 +52,9 @@ before-command = [
 os = ["archlinux"]
 restore = false
 filter-source = false
+
+# Example 7: Command-only task (no src/dest). Run shell commands; skipped on restore.
+# [[tasks]]
+# type = "command"
+# os = ["linux"]
+# commands = ["echo 'custom sync or script here'"]

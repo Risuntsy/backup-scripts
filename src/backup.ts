@@ -4,66 +4,41 @@ import { loadConfig, resolveTasks } from "./config.ts";
 import { expandBackupDir } from "./utils/path.ts";
 import { getCurrentOs } from "./utils/os.ts";
 import { compress } from "./utils/compress.ts";
+import { runCommand } from "./utils/command.ts";
 import { getLogger, initLogger } from "./utils/logger.ts";
-import { textDecoder } from "./utils/constants.ts";
 
-async function runBeforeCommands(commands: string[]): Promise<void> {
-    const logger = getLogger();
+const configPath = Deno.args[0] || "backup.toml";
+const logger = getLogger();
+
+await backup(configPath);
+
+async function runBeforeCommands(
+    commands: string[],
+    sources: string[],
+): Promise<void> {
+    const firstSrc = sources[0] ?? "";
+    const firstSrcIsDir = firstSrc && sources.length === 1 &&
+        (await Deno.stat(firstSrc).catch(() => ({
+            isDirectory: false,
+        }))).isDirectory;
+    const cwd = firstSrcIsDir ? firstSrc : undefined;
 
     logger.debug(`Running before-commands: ${commands}`);
 
+    await runCommands(commands, cwd);
+}
+
+async function runCommands(commands: string[], cwd?: string): Promise<void> {
     for (const command of commands) {
-        try {
-            logger.info(`Executing before-command: ${command}`);
-
-            const needsShell = command.includes("|") || 
-                               command.includes(">") || 
-                               command.includes("<") ||
-                               command.includes("&&") ||
-                               command.includes("||") ||
-                               command.includes("'") ||
-                               command.includes('"');
-
-            let cmd;
-            if (needsShell) {
-                const currentOs = await getCurrentOs();
-                const shell = currentOs === "windows" ? "cmd" : "sh";
-                const shellArg = currentOs === "windows" ? "/c" : "-c";
-                
-                cmd = new Deno.Command(shell, {
-                    args: [shellArg, command],
-                    stdout: "piped",
-                    stderr: "piped",
-                });
-            } else {
-                const parts = command.split(/\s+/);
-                cmd = new Deno.Command(parts[0], {
-                    args: parts.slice(1),
-                    stdout: "piped",
-                    stderr: "piped",
-                });
-            }
-
-            const { code, stderr } = await cmd.output();
-
-            if (code !== 0) {
-                throw new Error(
-                    `Command exited with code ${code}: ${
-                        textDecoder.decode(stderr)
-                    }`,
-                );
-            }
-        } catch (error) {
-            throw new Error(`Before-command failed: ${command}\n${error}`);
-        }
+        logger.debug(`Executing command: ${command}${cwd ? ` in ${cwd}` : ""}`);
+        await runCommand(command, cwd);
     }
 }
 
 async function backupCopy(sources: string[], dest: string): Promise<void> {
-    const logger = getLogger();
-    
-    const destIsFile = dest.includes(".") && !dest.endsWith("/") && sources.length === 1;
-    
+    const destIsFile = dest.includes(".") && !dest.endsWith("/") &&
+        sources.length === 1;
+
     if (destIsFile) {
         const destDir = dirname(dest);
         await ensureDir(destDir);
@@ -92,7 +67,6 @@ async function backupCopy(sources: string[], dest: string): Promise<void> {
 }
 
 async function backupCompress(sources: string[], dest: string): Promise<void> {
-    const logger = getLogger();
     const destDir = dirname(dest);
     await ensureDir(destDir);
 
@@ -105,8 +79,13 @@ async function processBackupTask(
     backupDir: string,
 ): Promise<void> {
     try {
-        if (task.beforeCommand.length > 0) {
-            await runBeforeCommands(task.beforeCommand);
+        if (task.type === "command") {
+            await runCommands(task.commands);
+            return;
+        }
+
+        if (task.beforeCommands) {
+            await runBeforeCommands(task.beforeCommands, task.src);
         }
 
         const destPath = join(backupDir, task.dest);
@@ -117,7 +96,10 @@ async function processBackupTask(
             await backupCopy(task.src, destPath);
         }
     } catch (error) {
-        throw new Error(`Task failed [dest: ${task.dest}]: ${error}`);
+        const label = task.type === "command"
+            ? "command"
+            : `dest: ${task.dest}`;
+        throw new Error(`Task failed [${label}]: ${error}`);
     }
 }
 
@@ -132,10 +114,7 @@ async function backup(configPath: string) {
             date,
         );
 
-
-        await ensureDir(backupDir);
         await initLogger(backupDir);
-        const logger = getLogger();
 
         logger.info(`Starting backup: ${backupDir}`);
 
@@ -169,11 +148,7 @@ async function backup(configPath: string) {
 
         logger.info(`Backup completed: ${successes.length} tasks`);
     } catch (error) {
-        const logger = getLogger();
         logger.error(`Backup failed: ${error}`);
         Deno.exit(1);
     }
 }
-
-const configPath = Deno.args[0] || "backup.toml";
-await backup(configPath);
