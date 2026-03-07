@@ -40,18 +40,25 @@ async function backupCopy(sources: string[], dest: string): Promise<void> {
         sources.length === 1;
 
     if (destIsFile) {
+        const srcStat = await Deno.stat(sources[0]);
+        if (!srcStat.isFile) {
+            throw new Error(
+                `Cannot copy directory to file destination: ${sources[0]} -> ${dest}`,
+            );
+        }
         const destDir = dirname(dest);
         await ensureDir(destDir);
         await copy(sources[0], dest, { overwrite: false });
         logger.info(`Copied ${sources[0]} -> ${dest}`);
     } else if (sources.length === 1) {
-        await ensureDir(dest);
         const srcStat = await Deno.stat(sources[0]);
         if (srcStat.isFile) {
+            await ensureDir(dest);
             const targetPath = join(dest, basename(sources[0]));
             await copy(sources[0], targetPath, { overwrite: false });
             logger.info(`Copied ${sources[0]} -> ${targetPath}`);
         } else {
+            await ensureDir(dirname(dest));
             await copy(sources[0], dest, { overwrite: false });
             logger.info(`Copied ${sources[0]} -> ${dest}`);
         }
