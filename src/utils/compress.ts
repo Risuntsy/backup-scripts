@@ -1,6 +1,8 @@
 import { getCurrentOs } from "./os.ts";
-import { textDecoder } from "./constants.ts";
 import { getLogger } from "./logger.ts";
+import { getTextDecoder } from "./constants.ts";
+
+const textDecoder = getTextDecoder();
 
 let sevenZipCommand: string | null = null;
 
@@ -14,11 +16,9 @@ export async function get7zipCommand(): Promise<string> {
     return sevenZipCommand;
 }
 
-
 export function set7zipCommand(command: string) {
     sevenZipCommand = command;
 }
-
 
 export async function compress(sources: string[], dest: string): Promise<void> {
     const cmd = await get7zipCommand();
@@ -38,7 +38,6 @@ export async function compress(sources: string[], dest: string): Promise<void> {
         throw new Error(`7z compression failed: ${textDecoder.decode(stderr)}`);
     }
 }
-
 
 export async function extract(src: string, dest: string): Promise<void> {
     const cmd = await get7zipCommand();

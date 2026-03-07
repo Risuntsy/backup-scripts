@@ -1,5 +1,7 @@
 import type { Os } from "../types.ts";
-import { textDecoder } from "./constants.ts";
+import { getTextDecoder } from "./constants.ts";
+
+const textDecoder = getTextDecoder();
 
 let cachedOs: Os | null = null;
 
