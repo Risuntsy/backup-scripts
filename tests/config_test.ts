@@ -49,7 +49,7 @@ Deno.test("loadConfig validates command tasks", async () => {
     await assertRejects(
         async () => await loadConfig(configPath),
         Error,
-        'type = "command" requires command',
+        'type = "command" requires commands',
     );
 });
 
@@ -119,7 +119,7 @@ Deno.test("resolveTasks resolves backup and command tasks", async () => {
             },
             {
                 type: "command",
-                command: ["ls"],
+                commands: ["ls"],
             },
         ],
     };
