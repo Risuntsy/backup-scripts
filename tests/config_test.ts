@@ -49,7 +49,7 @@ Deno.test("loadConfig validates command tasks", async () => {
     await assertRejects(
         async () => await loadConfig(configPath),
         Error,
-        'type = "command" requires commands',
+        'Task of type "command" requires "commands"',
     );
 });
 

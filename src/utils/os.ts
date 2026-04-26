@@ -33,6 +33,7 @@ export async function getCurrentOs(): Promise<Os> {
  */
 async function getLinuxDistribution(): Promise<Os> {
     try {
+        // ISSUE: Spawning a process ('cat') is less efficient than reading the file directly with Deno.readTextFile.
         const command = new Deno.Command("cat", {
             args: ["/etc/os-release"],
             stdout: "piped",

@@ -1,11 +1,18 @@
 import { copy, ensureDir, exists } from "@std/fs";
 import { basename, dirname, join } from "@std/path";
 import { parse } from "@std/toml";
-import type { BackupConfig, Os, ResolvedTask } from "./types.ts";
+import type {
+    BackupConfig,
+    Manifest,
+    ManifestTask,
+    Os,
+    ResolvedTask,
+} from "./types.ts";
 import { getCurrentOs, isRestoreCompatible } from "./utils/os.ts";
-import { expandPath } from "./utils/path.ts";
+import { commonParentDir, expandPath } from "./utils/path.ts";
 import { extract } from "./utils/compress.ts";
 import { getLogger, initLogger } from "./utils/logger.ts";
+
 
 const logger = getLogger();
 const backupDir = Deno.args[0];
@@ -77,12 +84,11 @@ async function restoreExtract(
         return;
     }
 
-    const restoreDest = originalSrc[0];
-    const destDir = dirname(restoreDest);
-    await ensureDir(destDir);
+    const restoreDest = commonParentDir(originalSrc);
+    await ensureDir(restoreDest);
 
-    await extract(archivePath, destDir);
-    logger.info(`Extracted ${archivePath} -> ${destDir}`);
+    await extract(archivePath, restoreDest);
+    logger.info(`Extracted ${archivePath} -> ${restoreDest}`);
 }
 
 async function processRestoreTask(
@@ -98,10 +104,56 @@ async function processRestoreTask(
         if (task.isCompress) {
             await restoreExtract(backupPath, task.src);
         } else {
+            // NOTE: In old logic, backupPath is the directory containing the sources.
+            // This is actually quite brittle without manifest.
             await restoreCopy(backupPath, task.src);
         }
     } catch (error) {
         throw new Error(`Task failed [dest: ${task.dest}]: ${error}`);
+    }
+}
+
+async function processManifestTask(
+    task: ManifestTask,
+    backupDir: string,
+): Promise<void> {
+    try {
+        if (task.compressed) {
+            const archivePath = join(backupDir, task.dest);
+            const restoreDest = task.compressCwd;
+            if (!restoreDest) {
+                throw new Error(
+                    `Missing compressCwd in manifest for task: ${task.dest}`,
+                );
+            }
+            await ensureDir(restoreDest);
+            await extract(archivePath, restoreDest);
+            logger.info(`Extracted ${archivePath} -> ${restoreDest}`);
+        } else {
+            for (const source of task.sources) {
+                const backupPath = join(backupDir, source.stored);
+                const restoreDest = source.original;
+
+                if (!(await exists(backupPath))) {
+                    logger.warn(`Source not found, skipping: ${backupPath}`);
+                    continue;
+                }
+
+                const destDir = dirname(restoreDest);
+                await ensureDir(destDir);
+
+                if (await exists(restoreDest)) {
+                    // TODO: maybe add --overwrite flag
+                    logger.warn(`Destination already exists, skipping: ${restoreDest}`);
+                    continue;
+                }
+
+                await copy(backupPath, restoreDest, { overwrite: false });
+                logger.info(`Restored ${backupPath} -> ${restoreDest}`);
+            }
+        }
+    } catch (error) {
+        throw new Error(`Manifest task failed [dest: ${task.dest}]: ${error}`);
     }
 }
 
@@ -152,6 +204,7 @@ function resolveRestoreTasks(
             os: taskOs,
             isCompress: originalDest.endsWith(".7z"),
             restore: !!task.restore,
+            preserveStructure: task["preserve-structure"] === true,
         });
     }
 
@@ -194,6 +247,39 @@ async function restore(backupDir: string) {
 
         logger.info(`Starting restore from: ${resolvedBackupDir}`);
 
+        const manifestPath = join(resolvedBackupDir, "manifest.json");
+        if (await exists(manifestPath)) {
+            logger.info("Found manifest.json, using it for deterministic restore");
+            const manifestContent = await Deno.readTextFile(manifestPath);
+            const manifest = JSON.parse(manifestContent) as Manifest;
+
+            const results = await Promise.allSettled(
+                manifest.tasks.map((task) =>
+                    processManifestTask(task, resolvedBackupDir)
+                ),
+            );
+
+            const failures = results.filter((r) => r.status === "rejected");
+            const successes = results.filter((r) => r.status === "fulfilled");
+
+            if (failures.length > 0) {
+                logger.error(`Failed ${failures.length}/${manifest.tasks.length} tasks`);
+                for (const failure of failures) {
+                    if (failure.status === "rejected") {
+                        logger.error(`  ${failure.reason}`);
+                    }
+                }
+                Deno.exit(1);
+            }
+
+            logger.info(`Restore completed: ${successes.length} tasks`);
+            return;
+        }
+
+        logger.warn(
+            "manifest.json not found, falling back to legacy restore (may be unreliable)",
+        );
+
         const config = await loadBackupConfig(resolvedBackupDir);
         const backupDirName = basename(resolvedBackupDir);
         const backupOs = detectBackupOs(backupDirName);
@@ -234,6 +320,6 @@ async function restore(backupDir: string) {
 }
 
 if (Deno.args.length === 0) {
-    console.error("Usage: deno task restore <backup-directory>");
+    logger.error("Usage: deno task restore <backup-directory>");
     Deno.exit(1);
 }

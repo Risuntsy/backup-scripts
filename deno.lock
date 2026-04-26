@@ -18,7 +18,8 @@
     "jsr:@std/internal@^1.0.9": "1.0.12",
     "jsr:@std/path@^1.1.1": "1.1.2",
     "jsr:@std/path@^1.1.2": "1.1.2",
-    "jsr:@std/toml@^1.0.11": "1.0.11"
+    "jsr:@std/toml@^1.0.11": "1.0.11",
+    "npm:zod@^3.23.8": "3.25.76"
   },
   "jsr": {
     "@cross/deepmerge@1.0.0": {
@@ -90,6 +91,11 @@
       ]
     }
   },
+  "npm": {
+    "zod@3.25.76": {
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
+    }
+  },
   "workspace": {
     "dependencies": [
       "jsr:@cross/dir@^1.1.0",
@@ -97,7 +103,8 @@
       "jsr:@std/assert@^1.0.19",
       "jsr:@std/fs@^1.0.19",
       "jsr:@std/path@^1.1.2",
-      "jsr:@std/toml@^1.0.11"
+      "jsr:@std/toml@^1.0.11",
+      "npm:zod@^3.23.8"
     ]
   }
 }

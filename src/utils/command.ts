@@ -7,7 +7,8 @@ export async function runCommand(command: string, cwd?: string): Promise<void> {
         command.includes("&&") ||
         command.includes("||") ||
         command.includes("'") ||
-        command.includes('"');
+        command.includes('"') ||
+        command.includes("\\");
 
     let cmd;
     if (needsShell) {
@@ -22,6 +23,7 @@ export async function runCommand(command: string, cwd?: string): Promise<void> {
             cwd,
         });
     } else {
+        // ISSUE: Brittle parsing. Does not handle spaces within arguments correctly if they are not quoted.
         const parts = command.split(/\s+/);
         cmd = new Deno.Command(parts[0], {
             args: parts.slice(1),

@@ -1,12 +1,55 @@
 import { parse } from "@std/toml";
 import { exists } from "@std/fs";
 import { resolve } from "@std/path";
+import { z } from "zod";
 import type { BackupConfig, BackupTask, Os, ResolvedTask } from "./types.ts";
 import { expandPath, filterValidSources } from "./utils/path.ts";
 import { getCurrentOs, isOsCompatible } from "./utils/os.ts";
 import { getLogger } from "./utils/logger.ts";
 
 const logger = getLogger();
+
+const OsSchema = z.enum([
+    "linux",
+    "nixos",
+    "archlinux",
+    "darwin",
+    "windows",
+]);
+
+const BackupTaskSchemaObject = z.object({
+    type: z.enum(["backup", "command"]).optional(),
+    src: z.array(z.string()).optional(),
+    dest: z.string().optional(),
+    "before-command": z.array(z.string()).optional(),
+    os: z.array(OsSchema).optional(),
+    restore: z.boolean().optional(),
+    "filter-source": z.boolean().optional(),
+    "preserve-structure": z.boolean().optional(),
+    commands: z.array(z.string()).optional(),
+});
+
+type BackupTaskSchemaType = z.infer<typeof BackupTaskSchemaObject>;
+
+const BackupTaskSchema = BackupTaskSchemaObject.refine(
+    (data: BackupTaskSchemaType) => {
+        const type = data.type ?? "backup";
+        if (type === "command") {
+            return !!data.commands && data.commands.length > 0;
+        } else {
+            return !!data.src && data.src.length > 0 && !!data.dest;
+        }
+    },
+    {
+        message:
+            'Task of type "command" requires "commands", while "backup" requires "src" and "dest"',
+    },
+);
+
+const BackupConfigSchema = z.object({
+    "backup-dir": z.string(),
+    tasks: z.array(BackupTaskSchema),
+});
 
 export async function loadConfig(configPath: string): Promise<BackupConfig> {
     const resolvedPath = resolve(configPath);
@@ -16,49 +59,17 @@ export async function loadConfig(configPath: string): Promise<BackupConfig> {
     }
 
     const content = await Deno.readTextFile(resolvedPath);
-    const config = parse(content) as unknown as BackupConfig;
+    const parsed = parse(content);
 
-    if (!config["backup-dir"]) {
-        throw new Error("Configuration missing required field: backup-dir");
+    const result = BackupConfigSchema.safeParse(parsed);
+    if (!result.success) {
+        const errorMessages = result.error.errors.map((err: z.ZodIssue) =>
+            `${err.path.join(".")}: ${err.message}`
+        ).join("\n");
+        throw new Error(`Configuration validation failed:\n${errorMessages}`);
     }
 
-    if (!config.tasks || !Array.isArray(config.tasks)) {
-        throw new Error(
-            "Configuration missing required field: tasks (must be an array)",
-        );
-    }
-
-    for (let i = 0; i < config.tasks.length; i++) {
-        const task = config.tasks[i];
-        const taskType = task.type ?? "backup";
-        if (taskType === "command") {
-            if (
-                !task.commands || !Array.isArray(task.commands) ||
-                task.commands.length === 0
-            ) {
-                throw new Error(
-                    `Task ${
-                        i + 1
-                    }: type = "command" requires commands (non-empty array)`,
-                );
-            }
-        } else {
-            if (
-                !task.src || !Array.isArray(task.src) || task.src.length === 0
-            ) {
-                throw new Error(
-                    `Task ${
-                        i + 1
-                    }: src is required and must be a non-empty array`,
-                );
-            }
-            if (!task.dest) {
-                throw new Error(`Task ${i + 1}: dest is required`);
-            }
-        }
-    }
-
-    return config;
+    return result.data as unknown as BackupConfig;
 }
 
 export async function resolveTask(
@@ -104,6 +115,7 @@ export async function resolveTask(
         os: taskOs,
         isCompress: dest.endsWith(".7z"),
         restore: task.restore !== false,
+        preserveStructure: task["preserve-structure"] === true,
     };
 }
 
@@ -113,5 +125,5 @@ export async function resolveTasks(
     const currentOs = await getCurrentOs();
     return (await Promise.all(
         config.tasks.map((task) => resolveTask(task, currentOs)),
-    )).filter((task) => task !== null);
+    )).filter((task) => task !== null) as ResolvedTask[];
 }

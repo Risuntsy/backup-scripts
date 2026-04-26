@@ -1,5 +1,5 @@
 import { dir } from "@cross/dir";
-import { join, resolve } from "@std/path";
+import { dirname, join, resolve } from "@std/path";
 import { exists } from "@std/fs";
 import { getLogger } from "./logger.ts";
 
@@ -16,9 +16,10 @@ export function expandPath(path: string): string {
     }
 
     expanded = expanded.replace(/\$\{HOME\}/g, HOME_DIR);
+    const xdgConfigHome = Deno.env.get("XDG_CONFIG_HOME");
     expanded = expanded.replace(
         /\$\{XDG_CONFIG_HOME\}/g,
-        join(HOME_DIR, ".config"),
+        xdgConfigHome || join(HOME_DIR, ".config"),
     );
     expanded = expanded.replace(/\$\{CONFIG_HOME\}/g, CONFIG_DIR);
 
@@ -30,7 +31,11 @@ export async function getFileSize(path: string): Promise<number> {
     try {
         const stat = await Deno.stat(path);
         if (stat.isDirectory) {
-            return 1;
+            let count = 0;
+            for await (const _ of Deno.readDir(path)) {
+                count++;
+            }
+            return count;
         }
         return stat.size;
     } catch {
@@ -87,4 +92,27 @@ export async function expandBackupDir(
     }
 
     return expandPath(expanded);
+}
+
+export function commonParentDir(paths: string[]): string {
+    if (paths.length === 0) return "/";
+    if (paths.length === 1) return dirname(paths[0]);
+
+    const parts = paths[0].split(/[/\\]/);
+    let commonParts = parts.slice(0, -1);
+
+    for (let i = 1; i < paths.length; i++) {
+        const currentParts = paths[i].split(/[/\\]/);
+        let j = 0;
+        while (
+            j < commonParts.length && j < currentParts.length &&
+            commonParts[j] === currentParts[j]
+        ) {
+            j++;
+        }
+        commonParts = commonParts.slice(0, j);
+        if (commonParts.length === 0) break;
+    }
+
+    return commonParts.join("/") || "/";
 }

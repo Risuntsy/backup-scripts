@@ -1,11 +1,13 @@
 import { copy, ensureDir } from "@std/fs";
-import { basename, dirname, join } from "@std/path";
+import { basename, dirname, join, relative } from "@std/path";
 import { loadConfig, resolveTasks } from "./config.ts";
-import { expandBackupDir } from "./utils/path.ts";
+import { commonParentDir, expandBackupDir } from "./utils/path.ts";
 import { getCurrentOs } from "./utils/os.ts";
 import { compress } from "./utils/compress.ts";
 import { runCommand } from "./utils/command.ts";
 import { getLogger, initLogger } from "./utils/logger.ts";
+import type { Manifest, ManifestTask } from "./types.ts";
+
 
 const configPath = Deno.args[0] || "backup.toml";
 const logger = getLogger();
@@ -35,60 +37,69 @@ async function runCommands(commands: string[], cwd?: string): Promise<void> {
     }
 }
 
-async function backupCopy(sources: string[], dest: string): Promise<void> {
-    const destIsFile = dest.includes(".") && !dest.endsWith("/") &&
-        sources.length === 1;
+async function backupCopy(
+    sources: string[],
+    destPath: string,
+    relativeDest: string,
+    preserveStructure: boolean,
+): Promise<ManifestTask> {
+    await ensureDir(destPath);
+    const task: ManifestTask = {
+        dest: relativeDest,
+        compressed: false,
+        sources: [],
+    };
 
-    if (destIsFile) {
-        const srcStat = await Deno.stat(sources[0]);
-        if (!srcStat.isFile) {
-            throw new Error(
-                `Cannot copy directory to file destination: ${sources[0]} -> ${dest}`,
-            );
-        }
-        const destDir = dirname(dest);
-        await ensureDir(destDir);
-        await copy(sources[0], dest, { overwrite: false });
-        logger.info(`Copied ${sources[0]} -> ${dest}`);
-    } else if (sources.length === 1) {
-        const srcStat = await Deno.stat(sources[0]);
-        if (srcStat.isFile) {
-            await ensureDir(dest);
-            const targetPath = join(dest, basename(sources[0]));
-            await copy(sources[0], targetPath, { overwrite: false });
-            logger.info(`Copied ${sources[0]} -> ${targetPath}`);
-        } else {
-            await ensureDir(dirname(dest));
-            await copy(sources[0], dest, { overwrite: false });
-            logger.info(`Copied ${sources[0]} -> ${dest}`);
-        }
-    } else {
-        await ensureDir(dest);
-        for (const src of sources) {
-            const srcName = basename(src);
-            const targetPath = join(dest, srcName);
-            await copy(src, targetPath, { overwrite: false });
-            logger.info(`Copied ${src} -> ${targetPath}`);
-        }
+    const cwd = preserveStructure ? commonParentDir(sources) : undefined;
+
+    for (const src of sources) {
+        const srcName = cwd ? relative(cwd, src) : basename(src);
+        const targetPath = join(destPath, srcName);
+        const storedRelative = join(relativeDest, srcName);
+
+        await ensureDir(dirname(targetPath));
+        await copy(src, targetPath, { overwrite: true });
+        logger.info(`Copied ${src} -> ${targetPath}`);
+
+        task.sources.push({
+            original: src,
+            stored: storedRelative,
+        });
     }
+    return task;
 }
 
-async function backupCompress(sources: string[], dest: string): Promise<void> {
-    const destDir = dirname(dest);
+async function backupCompress(
+    sources: string[],
+    destPath: string,
+    relativeDest: string,
+): Promise<ManifestTask> {
+    const destDir = dirname(destPath);
     await ensureDir(destDir);
 
-    await compress(sources, dest);
-    logger.info(`Compressed ${sources.length} item(s) -> ${dest}`);
+    const cwd = commonParentDir(sources);
+    await compress(sources, destPath, cwd);
+    logger.info(`Compressed ${sources.length} item(s) -> ${destPath}`);
+
+    return {
+        dest: relativeDest,
+        compressed: true,
+        compressCwd: cwd,
+        sources: sources.map((src) => ({
+            original: src,
+            stored: relativeDest,
+        })),
+    };
 }
 
 async function processBackupTask(
     task: Awaited<ReturnType<typeof resolveTasks>>[number],
     backupDir: string,
-): Promise<void> {
+): Promise<ManifestTask | null> {
     try {
         if (task.type === "command") {
             await runCommands(task.commands);
-            return;
+            return null;
         }
 
         if (task.beforeCommands) {
@@ -98,9 +109,14 @@ async function processBackupTask(
         const destPath = join(backupDir, task.dest);
 
         if (task.isCompress) {
-            await backupCompress(task.src, destPath);
+            return await backupCompress(task.src, destPath, task.dest);
         } else {
-            await backupCopy(task.src, destPath);
+            return await backupCopy(
+                task.src,
+                destPath,
+                task.dest,
+                task.preserveStructure,
+            );
         }
     } catch (error) {
         const label = task.type === "command"
@@ -121,6 +137,7 @@ async function backup(configPath: string) {
             date,
         );
 
+        await ensureDir(backupDir);
         await initLogger(backupDir);
 
         logger.info(`Starting backup: ${backupDir}`);
@@ -141,7 +158,9 @@ async function backup(configPath: string) {
         );
 
         const failures = results.filter((r) => r.status === "rejected");
-        const successes = results.filter((r) => r.status === "fulfilled");
+        const successes = results.filter((r) =>
+            r.status === "fulfilled"
+        ) as PromiseFulfilledResult<ManifestTask | null>[];
 
         if (failures.length > 0) {
             logger.error(`Failed ${failures.length}/${tasks.length} tasks`);
@@ -152,6 +171,23 @@ async function backup(configPath: string) {
             }
             Deno.exit(1);
         }
+
+        const manifest: Manifest = {
+            version: 1,
+            os: currentOs,
+            date: date,
+            backupDir: backupDir,
+            tasks: successes.map((s) => s.value).filter((t): t is ManifestTask =>
+                t !== null
+            ),
+        };
+
+        const manifestPath = join(backupDir, "manifest.json");
+        await Deno.writeTextFile(
+            manifestPath,
+            JSON.stringify(manifest, null, 2),
+        );
+        logger.info(`Manifest written to: ${manifestPath}`);
 
         logger.info(`Backup completed: ${successes.length} tasks`);
     } catch (error) {
